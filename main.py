@@ -1,12 +1,14 @@
 #!/home/pi/envs/plants/bin/python
 # -*- coding: utf-8 -*-
 
+import spidev
 import RPi.GPIO as GPIO
 import sys, time, os
 from datetime import datetime
 import cv2
 import imutils
 import numpy as np
+from numpy import interp
 import matplotlib.pyplot as plot
 from PIL import ImageFont, ImageDraw, Image
 
@@ -23,8 +25,10 @@ pinSoil = 18
 
 light_time = ["5:30", "18:30"]
 water_time = ["8:00", "18:30"]
-th_light = 700
-th_water = 0.6
+th_light = 95
+th_water = 35
+interval_watering = 30  #minutes 
+watering_powron_time = 10   #seconds
 
 img_rotate = 0
 img_flip_v = True
@@ -38,6 +42,12 @@ GPIO.setup(pinLight, GPIO.OUT)
 GPIO.setup(pinWater, GPIO.OUT)
 GPIO.setup(pinSoil, GPIO.IN)
 
+GPIO.output(pinWater, GPIO.HIGH)
+GPIO.output(pinLight, GPIO.HIGH)
+
+spi = spidev.SpiDev()
+spi.open(0,0)
+
 figure = plot.figure(num=None, figsize=(15, 4), dpi=50, facecolor='w', edgecolor='k')
 ax_l = figure.add_subplot(1,2,1)
 ax_w = figure.add_subplot(1,2,2)
@@ -49,24 +59,41 @@ timeList_w = []
 
 #top-left , bottom-right, color
 addY =200
+lastWatering = 0  #last watering time
 plant_box = [[(15,40+addY),(165,261+addY),(254,166,12),"雪荔", "wav/plant_1.wav"],\
             [(118,17+addY),(474,255+addY),(12,143,254), "竹柏", "wav/plant_2.wav"],\
             [(60, 210+addY),(172,318+addY),(5,5,255),"嫣紅蔓", "wav/plant_5.wav"],\
             [(130, 232+addY),(338,380+addY),(40,255,5),"長春藤", "wav/plant_4.wav"],\
             [(267, 182+addY),(448,325+addY),(252,7,140),"紅網紋", "wav/plant_3.wav"] ]
 
-cv2.namedWindow("Plant Image", cv2.WND_PROP_FULLSCREEN)        # Create a named window
-cv2.setWindowProperty("Plant Image", cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)
+#cv2.namedWindow("Plant Image", cv2.WND_PROP_FULLSCREEN)        # Create a named window
+#cv2.setWindowProperty("Plant Image", cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)
+
+def analogInput(channel):
+    spi.max_speed_hz = 1350000
+    adc = spi.xfer2([1,(8+channel)<<4,0])
+    data = ((adc[1]&3) << 8) + adc[2]
+    vdata = interp(data, [0, 1023], [0, 100])
+
+    return vdata
+
 
 def speak(wavfile):
     os.system('/usr/bin/aplay ' + wavfile)
 
 def read_soil():
     #GPIO.input(pinSoil)
-    return 0.4
+    value = analogInput(0)
+    value = 100 - value
+    print("SOIL:", value)
+
+    return value
 
 def read_light():
-    return 755
+    value = analogInput(1)
+    print("Light:", value)
+
+    return value
 
 def draw_plant_box(img):
     y_txt = 105 + addY
@@ -107,22 +134,27 @@ def light_control(img, nValue):
         img = printText("光照足夠!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
         y_txt += 30
         img = printText("不需開啟LED植物燈", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
+        speakFile = "wav/light_1.wav"
     else:
         img = printText("未達到設定值"+str(th_light), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
         y_txt += 50
         img = printText("光照不足!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
         y_txt += 30
-        if(
         img = printText("已開啟LED植物燈補光", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
-
+        GPIO.output(pinWater, GPIO.LOW)
+        speakFile = "wav/light_2.wav"
 
     cv2.imshow("Plant Image", img)
     cv2.waitKey(1)
+    cv2.waitKey(1)
+    speak(speakFile)
     cv2.waitKey(6000)
 
     return img
 
 def water_control(img, nValue):
+    global lastWatering
+
     y_txt = 105 + addY
 
     img = printText("植物的澆水時間設定：", img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
@@ -131,21 +163,38 @@ def water_control(img, nValue):
     y_txt += 60
     img = printText("目前土壤溼度為"+str(nValue), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
     y_txt += 30
+
+    ynWater = False
     if(nValue>th_water):
         img = printText("高於設定值"+str(th_water), img, color=(255,255,255,0), size=0.7, pos=(600,y_txt), type="Chinese")
         y_txt += 60
         img = printText("不需要澆水!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
+        speakFile = "wav/water_1.wav"
     else:
         img = printText("低於設定值"+str(th_water), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
         y_txt += 60
-        img = printText("需要澆水!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
-        y_txt += 30
-        img = printText("已啟動汲水幫浦", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
 
+        if(time.time()-lastWatering>(interval_watering*60)):
+            img = printText("需要澆水!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
+            y_txt += 30
+            img = printText("已啟動汲水幫浦", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
+            speakFile = "wav/water_2.wav"
+            ynWater = True
+            lastWatering = time.time()
 
+        else:
+            img = printText("需要澆水但尚未超過澆水", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
+            y_txt += 30
+            img = printText("間隔時間："+str(interval_watering)+"分鐘", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
+            speakFile = "wav/water_3.wav"
 
     cv2.imshow("Plant Image", img)
     cv2.waitKey(1)
+    cv2.waitKey(1)
+    if(ynWater is True):
+        watering()
+
+    speak(speakFile)
     cv2.waitKey(6000)
 
     return img
@@ -177,6 +226,15 @@ def inputData(arrayName, data, length):
 
     return arrayName
 
+def watering():
+    print("start watering...")
+    startTime = time.time()
+
+    while time.time()-startTime<interval_watering:
+        GPIO.output(pinWater, GPIO.LOW)
+
+    GPIO.output(pinWater, GPIO.HIGH)
+
 def plotLine(img_bg, vLight, vWater):
     global lList, wList, timeList_l, timeList_w
 
@@ -191,7 +249,7 @@ def plotLine(img_bg, vLight, vWater):
     y = np.array (lList)
     ax_l.cla()
     ax_l.set_title("Lightness (degree)")
-    ax_l.set_ylim(0, 1024)
+    ax_l.set_ylim(0, 100)
     ax_l.axes.get_xaxis().set_visible(False)
     ax_l.plot ( x, y ,'yo-')
 
@@ -199,7 +257,7 @@ def plotLine(img_bg, vLight, vWater):
     y = np.array (wList)
     ax_w.cla()
     ax_w.set_title("Water (degree)")
-    ax_w.set_ylim(0, 1.0)
+    ax_w.set_ylim(0, 100)
     ax_w.axes.get_xaxis().set_visible(False)
     ax_w.plot ( x, y , 'bo-')
 
