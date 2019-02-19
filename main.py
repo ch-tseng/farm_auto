@@ -13,7 +13,7 @@ import matplotlib.pyplot as plot
 from PIL import ImageFont, ImageDraw, Image
 
 #-----------------------------------
-plotLength = 30
+plotLength = 60
 lightTime = (6,18)  #hour
 waterTime = (5,18) # hour
 waterInterval =  2 * 60 * 60 #seconds
@@ -23,11 +23,11 @@ pinLight = 14
 pinWater = 15
 pinSoil = 18
 
-light_time = ["5:30", "18:30"]
-water_time = ["8:00", "18:30"]
+light_time = [6, 18]
+water_time = [8, 18]
 th_light = 95
-th_water = 35
-interval_watering = 30  #minutes 
+th_water = 16
+interval_watering = 15  #minutes 
 watering_powron_time = 10   #seconds
 
 img_rotate = 0
@@ -66,8 +66,8 @@ plant_box = [[(15,40+addY),(165,261+addY),(254,166,12),"雪荔", "wav/plant_1.wa
             [(130, 232+addY),(338,380+addY),(40,255,5),"長春藤", "wav/plant_4.wav"],\
             [(267, 182+addY),(448,325+addY),(252,7,140),"紅網紋", "wav/plant_3.wav"] ]
 
-#cv2.namedWindow("Plant Image", cv2.WND_PROP_FULLSCREEN)        # Create a named window
-#cv2.setWindowProperty("Plant Image", cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)
+cv2.namedWindow("Plant Image", cv2.WND_PROP_FULLSCREEN)        # Create a named window
+cv2.setWindowProperty("Plant Image", cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)
 
 def analogInput(channel):
     spi.max_speed_hz = 1350000
@@ -114,41 +114,46 @@ def draw_plant_box(img):
 
 def light_control(img, nValue):
     y_txt = 105 + addY
-    '''
+    
     now = datetime.now()
     hourNow = int(now.strftime("%H"))
-    minuteNow = int(now.strftime("%m"))
-    startTime = light_time[0].split(":")
-    endTime = light_time[1].split(":")
-    '''
+    startHour = light_time[0]
+    endHour = light_time[1]
+    
     img = printText("植物的照光時間設定：", img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
     y_txt += 30
-    img = printText(light_time[0] + "~" + light_time[1], img, color=(4,197,252,0), size=0.7, pos=(600,y_txt), type="Chinese")
+    img = printText(str(light_time[0]) + "點 ~ " + str(light_time[1])+"點", img, color=(4,197,252,0), size=0.7, pos=(600,y_txt), type="Chinese")
     y_txt += 60
-    img = printText("目前光照度為"+str(nValue), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
+    img = printText("目前光照度為"+str(int(nValue)), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
     y_txt += 30
 
-    if(nValue>th_light):
-        img = printText("高於設定值"+str(th_light), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
-        y_txt += 50
-        img = printText("光照足夠!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
-        y_txt += 30
-        img = printText("不需開啟LED植物燈", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
-        speakFile = "wav/light_1.wav"
+    if(hourNow>=startHour and hourNow<=endHour):
+        if(nValue>th_light):
+            img = printText("高於設定值"+str(th_light), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
+            y_txt += 50
+            img = printText("光照足夠!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
+            y_txt += 30
+            img = printText("不需開啟LED植物燈", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
+            speakFile = "wav/light_1.wav"
+        else:
+            img = printText("未達到設定值"+str(th_light), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
+            y_txt += 50
+            img = printText("光照不足!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
+            y_txt += 30
+            img = printText("已開啟LED植物燈補光", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
+            GPIO.output(pinLight, GPIO.LOW)
+            speakFile = "wav/light_2.wav"
+
     else:
-        img = printText("未達到設定值"+str(th_light), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
         y_txt += 50
-        img = printText("光照不足!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
-        y_txt += 30
-        img = printText("已開啟LED植物燈補光", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
-        GPIO.output(pinWater, GPIO.LOW)
-        speakFile = "wav/light_2.wav"
+        img = printText("非光照時間", img, color=(0,255,0,0), size=0.7, pos=(550,y_txt), type="Chinese")
+        speakFile = "wav/light_3.wav"
 
     cv2.imshow("Plant Image", img)
     cv2.waitKey(1)
     cv2.waitKey(1)
     speak(speakFile)
-    cv2.waitKey(6000)
+    cv2.waitKey(3000)
 
     return img
 
@@ -156,46 +161,59 @@ def water_control(img, nValue):
     global lastWatering
 
     y_txt = 105 + addY
+    now = datetime.now()
+    hourNow = int(now.strftime("%H"))
+    startHour = water_time[0]
+    endHour = water_time[1]
 
     img = printText("植物的澆水時間設定：", img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
     y_txt += 30
-    img = printText(water_time[0] + "~" + water_time[1], img, color=(4,197,252,0), size=0.7, pos=(600,y_txt), type="Chinese")
+    img = printText(str(water_time[0]) + "點 ~ " + str(water_time[1])+"點", img, color=(4,197,252,0), size=0.7, pos=(600,y_txt), type="Chinese")
     y_txt += 60
-    img = printText("目前土壤溼度為"+str(nValue), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
+    img = printText("目前土壤溼度為"+str(int(nValue)), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
     y_txt += 30
 
     ynWater = False
-    if(nValue>th_water):
-        img = printText("高於設定值"+str(th_water), img, color=(255,255,255,0), size=0.7, pos=(600,y_txt), type="Chinese")
-        y_txt += 60
-        img = printText("不需要澆水!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
-        speakFile = "wav/water_1.wav"
-    else:
-        img = printText("低於設定值"+str(th_water), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
-        y_txt += 60
 
-        if(time.time()-lastWatering>(interval_watering*60)):
-            img = printText("需要澆水!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
-            y_txt += 30
-            img = printText("已啟動汲水幫浦", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
-            speakFile = "wav/water_2.wav"
-            ynWater = True
-            lastWatering = time.time()
-
+    if(hourNow>=startHour and hourNow<=endHour):
+        if(nValue>th_water):
+            img = printText("高於設定值"+str(th_water), img, color=(255,255,255,0), size=0.7, pos=(600,y_txt), type="Chinese")
+            y_txt += 60
+            img = printText("不需要澆水!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
+            speakFile = "wav/water_1.wav"
         else:
-            img = printText("需要澆水但尚未超過澆水", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
-            y_txt += 30
-            img = printText("間隔時間："+str(interval_watering)+"分鐘", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
-            speakFile = "wav/water_3.wav"
+            img = printText("低於設定值"+str(th_water), img, color=(255,255,255,0), size=0.7, pos=(530,y_txt), type="Chinese")
+            y_txt += 60
+            water_idled = time.time()-lastWatering
+
+            if(water_idled>(interval_watering*60)):
+                img = printText("需要澆水!", img, color=(102,102,254,0), size=0.7, pos=(600,y_txt), type="Chinese")
+                y_txt += 30
+                img = printText("已啟動汲水幫浦", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
+                speakFile = "wav/water_2.wav"
+                ynWater = True
+                lastWatering = time.time()
+
+            else:
+                img = printText("需要澆水但尚未超過澆水", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
+                y_txt += 30
+                img = printText("間隔時間"+str(interval_watering)+"分鐘", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
+                y_txt += 30
+                img = printText("須再等待"+str(int(interval_watering*60 - water_idled))+"秒鐘", img, color=(102,102,254,0), size=0.7, pos=(550,y_txt), type="Chinese")
+                speakFile = "wav/water_3.wav"
+
+    else:
+        y_txt += 50
+        img = printText("非澆水時間", img, color=(0,0,255,0), size=0.7, pos=(550,y_txt), type="Chinese")
+        speakFile = "wav/water_4.wav"
 
     cv2.imshow("Plant Image", img)
     cv2.waitKey(1)
     cv2.waitKey(1)
+    cv2.waitKey(10)
+    speak(speakFile)
     if(ynWater is True):
         watering()
-
-    speak(speakFile)
-    cv2.waitKey(6000)
 
     return img
 
@@ -228,9 +246,9 @@ def inputData(arrayName, data, length):
 
 def watering():
     print("start watering...")
-    startTime = time.time()
+    startWater = time.time()
 
-    while time.time()-startTime<interval_watering:
+    while time.time()-startWater<watering_powron_time:
         GPIO.output(pinWater, GPIO.LOW)
 
     GPIO.output(pinWater, GPIO.HIGH)
@@ -272,9 +290,53 @@ def plotLine(img_bg, vLight, vWater):
     print("bg", img_bg.shape[0]-220, img_bg.shape[1])
     #matplotlib.pyplot.show()
     img_bg[ 0:img.shape[0], 10:10+img.shape[1]] = img
-    #img_bg[ img_bg.shape[0]-200:img_bg.shape[0], 10:10+img.shape[1]] = img[0:200,0:img.shape[1]]
-    #img_bg[ img_bg.shape[0]-img.shape[0]:img_bg.shape[0], 10:10+img.shape[1]] = img
+
     return img_bg
+
+def contrast_stretch(im):
+    """
+    Performs a simple contrast stretch of the given image, from 5-95%.
+    """
+    in_min = np.percentile(im, 5)
+    in_max = np.percentile(im, 95)
+
+    out_min = 0.0
+    out_max = 255.0
+
+    out = im - in_min
+    out *= ((out_min - out_max) / (in_min - in_max))
+    out += in_min
+
+    return out
+
+
+def ndvi(image):
+    # use Standard NDVI method, smaller for larger area
+    thRED1 = 150
+    thYELLOW1 = 60
+    thGREEN1 = 0
+
+    #image = cv2.bitwise_and(image, image, mask=cv2.imread("9_or_joined.png"))
+    r, g, b = cv2.split(image)
+    divisor = (r.astype(float) + b.astype(float))
+    divisor[divisor == 0] = 0.01  # Make sure we don't divide by zero!
+
+    ndvi = (b.astype(float) - r) / divisor
+
+    #Paint the NDVI image
+    ndvi2 = contrast_stretch(ndvi)
+    ndvi2 = ndvi2.astype(np.uint8)
+
+    redNDVI = cv2.inRange(ndvi2, thRED1, 255)
+    yellowNDVI = cv2.inRange(ndvi2, thYELLOW1, thRED1)
+    greenNDVI = cv2.inRange(ndvi2, thGREEN1, thYELLOW1)
+    merged = cv2.merge([yellowNDVI, greenNDVI, redNDVI])
+
+    #text = '[Max]: {m} '.format(m=round(ndvi.max(),1))
+    #text = text + '[Mean]: {m} '.format(m=round(ndvi.mean(),1))
+    #text = text + '[Median]: {m} '.format(m=round(np.median(ndvi),1))
+    #text = text + '[Min]: {m}'.format(m=round(ndvi.min(),1))
+    return merged
 
 if __name__ == "__main__":
 
@@ -298,12 +360,14 @@ if __name__ == "__main__":
         if(img_flip_v is True):
             frame = cv2.flip(frame, 0 , dst=None)
 
-        if(i % 3 == 2):
+        if(i % 4 == 3):
             bg = cv2.imread("bg_main_detect.png")
-        elif(i % 3 == 1):
+        elif(i % 4 == 0):
             bg = cv2.imread("bg_main_light.png")
-        elif(i % 3 == 0):
+        elif(i % 4 == 1):
             bg = cv2.imread("bg_main_water.png")
+        elif(i % 4 == 2):
+            bg = cv2.imread("bg_main_ndvi.png")
 
 
         now_light = read_light()
@@ -311,16 +375,25 @@ if __name__ == "__main__":
         bg = plotLine(bg, now_light, now_water)
         frame_display = imutils.resize(frame, width=img_display_resize_w)
         #bg[12:12+frame_display.shape[0], 12:12+frame_display.shape[1]] = frame_display
+        if(i % 4 == 2):
+            frame_display = ndvi(frame_display)
+
         bg[bg.shape[0]-frame_display.shape[0]-15:bg.shape[0]-15, 12:12+frame_display.shape[1]] = frame_display
 
-        if(i % 3 == 2):
+        if(i % 4 == 3):
             final_display = draw_plant_box(bg)
-        elif(i % 3 == 1):
+        elif(i % 4 == 0):
             final_display = light_control(bg, now_light)
-        elif(i % 3 == 0):
+        elif(i % 4 == 1):
             final_display = water_control(bg, now_water)
+        elif( i % 4 == 2):
+            final_display = bg
 
         cv2.imshow("Plant Image", final_display)
         #cv2.imwrite("test.jpg", bg)
         cv2.waitKey(1)
+        cv2.waitKey(10)
+        if(i % 4 == 2):
+            speak("wav/ndvi_1.wav")
+            cv2.waitKey(1500)
         i += 1
